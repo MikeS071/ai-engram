@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Cache files
+.aiengram_cache.pkl
+.aiengram_memory_cache.pkl
+
+# Media / large files
+*.mp4
+*.png
+*.pdf
+
+# Editor
+.vscode/
