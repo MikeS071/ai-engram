@@ -28,3 +28,6 @@ AI and the Value of Expertise.md
 # Memory (persistent across conversations)
 .aiengram_memory.jsonl
 
+# Social scheduler runtime state
+.social_scheduler/
+

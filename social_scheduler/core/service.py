@@ -1,0 +1,313 @@
+from __future__ import annotations
+
+import hashlib
+import uuid
+from datetime import datetime, timedelta
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+from social_scheduler.core.approval_rules import should_auto_approve
+from social_scheduler.core.hashing import content_hash
+from social_scheduler.core.models import (
+    ApprovalRule,
+    AttemptResult,
+    Campaign,
+    HealthCheckStatus,
+    PostState,
+    SocialPost,
+    SocialPostAttempt,
+    SystemControl,
+    TelegramDecisionRequest,
+    TelegramDecisionAudit,
+    utc_now_iso,
+)
+from social_scheduler.core.paths import (
+    ATTEMPTS_FILE,
+    CAMPAIGNS_FILE,
+    CONFIRM_TOKENS_FILE,
+    HEALTH_FILE,
+    POSTS_FILE,
+    RULES_FILE,
+    SYSTEM_CONTROLS_FILE,
+    TELEGRAM_AUDIT_FILE,
+    TELEGRAM_DECISIONS_FILE,
+    TELEGRAM_RATE_LIMIT_FILE,
+)
+from social_scheduler.core.state_machine import ensure_transition
+from social_scheduler.core.storage_jsonl import JsonlStore
+from social_scheduler.core.timing_engine import Recommendation, recommend_post_time
+
+
+class SocialSchedulerService:
+    def __init__(self) -> None:
+        self.campaigns = JsonlStore(CAMPAIGNS_FILE)
+        self.posts = JsonlStore(POSTS_FILE)
+        self.attempts = JsonlStore(ATTEMPTS_FILE)
+        self.rules = JsonlStore(RULES_FILE)
+        self.telegram_audit = JsonlStore(TELEGRAM_AUDIT_FILE)
+        self.telegram_decisions = JsonlStore(TELEGRAM_DECISIONS_FILE)
+        self.telegram_rate = JsonlStore(TELEGRAM_RATE_LIMIT_FILE)
+        self.confirm_tokens = JsonlStore(CONFIRM_TOKENS_FILE)
+        self.health = JsonlStore(HEALTH_FILE)
+        self.controls = JsonlStore(SYSTEM_CONTROLS_FILE)
+
+    def _new_id(self, prefix: str) -> str:
+        raw = f"{prefix}:{utc_now_iso()}:{uuid.uuid4().hex}"
+        suffix = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:8]
+        return f"{prefix}_{suffix}"
+
+    def create_campaign_from_blog(self, blog_path: str, audience_timezone: str) -> Campaign:
+        blog_file = Path(blog_path)
+        if not blog_file.exists():
+            raise FileNotFoundError(f"Blog file not found: {blog_path}")
+
+        content = blog_file.read_text(encoding="utf-8")
+        now = utc_now_iso()
+        campaign = Campaign(
+            id=self._new_id("camp"),
+            source_blog_path=blog_path,
+            audience_timezone=audience_timezone,
+            created_at=now,
+            updated_at=now,
+        )
+        self.campaigns.append(campaign.model_dump())
+
+        for platform in ("linkedin", "x"):
+            post = SocialPost(
+                id=self._new_id("post"),
+                campaign_id=campaign.id,
+                platform=platform,
+                content=self._draft_for_platform(content, platform),
+                state=PostState.DRAFT,
+                created_at=now,
+                updated_at=now,
+            )
+            self.posts.append(post.model_dump())
+
+        return campaign
+
+    def _draft_for_platform(self, blog_markdown: str, platform: str) -> str:
+        lines = [ln.strip() for ln in blog_markdown.splitlines() if ln.strip()]
+        title = lines[0].lstrip("# ") if lines else "Untitled"
+        body = "\n\n".join(lines[1:6]) if len(lines) > 1 else ""
+        return f"{title}\n\n{body}\n\nSource: article"
+
+    def list_campaign_posts(self, campaign_id: str) -> list[SocialPost]:
+        rows = self.posts.filter(lambda r: r.get("campaign_id") == campaign_id)
+        return [SocialPost.model_validate(r) for r in rows]
+
+    def edit_post(self, post_id: str, content: str) -> SocialPost:
+        row = self.posts.find_one("id", post_id)
+        if not row:
+            raise ValueError(f"Post not found: {post_id}")
+        post = SocialPost.model_validate(row)
+        if post.state in (PostState.POSTED, PostState.CANCELED):
+            raise ValueError("Cannot edit posted/canceled posts")
+        post.content = content
+        post.edited_at = utc_now_iso()
+        post.updated_at = utc_now_iso()
+        if post.state == PostState.DRAFT:
+            ensure_transition(post.state, PostState.READY_FOR_APPROVAL)
+            post.state = PostState.READY_FOR_APPROVAL
+        self.posts.upsert("id", post.id, post.model_dump())
+        return post
+
+    def analyze_optimal_time(self, campaign_id: str) -> Recommendation:
+        campaign_row = self.campaigns.find_one("id", campaign_id)
+        if not campaign_row:
+            raise ValueError(f"Campaign not found: {campaign_id}")
+        campaign = Campaign.model_validate(campaign_row)
+
+        history_exists = bool(self.posts.filter(lambda r: r.get("posted_at") is not None))
+        rec = recommend_post_time(campaign.audience_timezone, has_history=history_exists)
+
+        posts = self.list_campaign_posts(campaign_id)
+        for post in posts:
+            post.recommended_for_utc = rec.recommended_time_utc
+            post.recommended_confidence = rec.confidence_score
+            post.recommended_reasoning = rec.reasoning_summary
+            post.recommendation_fallback_used = rec.fallback_used
+            post.updated_at = utc_now_iso()
+            self.posts.upsert("id", post.id, post.model_dump())
+        return rec
+
+    def approve_campaign(self, campaign_id: str, editor_user: str = "local-cli") -> list[SocialPost]:
+        posts = self.list_campaign_posts(campaign_id)
+        if len(posts) != 2:
+            raise ValueError("Campaign must have exactly two platform posts")
+
+        approved: list[SocialPost] = []
+        rules = [ApprovalRule.model_validate(r) for r in self.rules.read_all()]
+
+        for post in posts:
+            if not post.edited_at:
+                raise ValueError(f"Post {post.id} requires human edit before approval")
+            if post.state not in (PostState.READY_FOR_APPROVAL, PostState.PENDING_MANUAL, PostState.DRAFT):
+                raise ValueError(f"Post {post.id} not in approvable state: {post.state.value}")
+            if post.state == PostState.DRAFT:
+                ensure_transition(PostState.DRAFT, PostState.READY_FOR_APPROVAL)
+                post.state = PostState.READY_FOR_APPROVAL
+
+            auto = should_auto_approve(post, rules)
+            ensure_transition(post.state, PostState.APPROVED)
+            post.state = PostState.APPROVED
+            post.approved_at = utc_now_iso()
+            post.approved_content_hash = content_hash(post.content)
+            post.updated_at = utc_now_iso()
+            self.posts.upsert("id", post.id, post.model_dump())
+            approved.append(post)
+
+            audit = TelegramDecisionAudit(
+                id=self._new_id("tg"),
+                campaign_id=campaign_id,
+                social_post_id=post.id,
+                telegram_user_id=editor_user,
+                action="auto_approve" if auto else "manual_approve",
+                created_at=utc_now_iso(),
+            )
+            self.telegram_audit.append(audit.model_dump())
+
+        # Auto-schedule immediately after approval.
+        self.schedule_campaign_auto(campaign_id)
+        return approved
+
+    def schedule_campaign_auto(self, campaign_id: str) -> list[SocialPost]:
+        campaign_row = self.campaigns.find_one("id", campaign_id)
+        if not campaign_row:
+            raise ValueError(f"Campaign not found: {campaign_id}")
+        campaign = Campaign.model_validate(campaign_row)
+
+        rec = self.analyze_optimal_time(campaign_id)
+
+        # Low confidence requires explicit confirmation; keep pending_manual.
+        if rec.confidence_score < 0.5:
+            posts = self.list_campaign_posts(campaign_id)
+            for post in posts:
+                ensure_transition(post.state, PostState.PENDING_MANUAL)
+                post.state = PostState.PENDING_MANUAL
+                post.updated_at = utc_now_iso()
+                self.posts.upsert("id", post.id, post.model_dump())
+                req = TelegramDecisionRequest(
+                    id=self._new_id("tgr"),
+                    campaign_id=campaign_id,
+                    social_post_id=post.id,
+                    request_type="confirmation",
+                    message=(
+                        f"Low-confidence timing for {post.platform} post {post.id}. "
+                        "Confirm schedule or reschedule manually."
+                    ),
+                    created_at=utc_now_iso(),
+                    expires_at=(datetime.now(tz=ZoneInfo("UTC")) + timedelta(minutes=30)).isoformat(),
+                )
+                self.telegram_decisions.append(req.model_dump())
+            raise ValueError(
+                "Low confidence timing recommendation. Explicit confirmation required (fallback 09:30 local)."
+            )
+
+        return self.schedule_campaign(campaign_id, rec.recommended_time_utc)
+
+    def schedule_campaign(self, campaign_id: str, scheduled_utc: str) -> list[SocialPost]:
+        scheduled = datetime.fromisoformat(scheduled_utc.replace("Z", "+00:00"))
+        now = datetime.now(tz=ZoneInfo("UTC"))
+        if scheduled <= now:
+            raise ValueError("Scheduled time must be in the future")
+        if scheduled > now + timedelta(days=30):
+            raise ValueError("Scheduling horizon exceeded (max 30 days)")
+
+        campaign_row = self.campaigns.find_one("id", campaign_id)
+        if not campaign_row:
+            raise ValueError(f"Campaign not found: {campaign_id}")
+        campaign = Campaign.model_validate(campaign_row)
+        campaign.campaign_time_utc = scheduled.isoformat()
+        campaign.updated_at = utc_now_iso()
+        self.campaigns.upsert("id", campaign.id, campaign.model_dump())
+
+        posts = self.list_campaign_posts(campaign_id)
+        for post in posts:
+            ensure_transition(post.state, PostState.SCHEDULED)
+            post.state = PostState.SCHEDULED
+            post.scheduled_for_utc = scheduled.isoformat()
+            post.updated_at = utc_now_iso()
+            self.posts.upsert("id", post.id, post.model_dump())
+        return posts
+
+    def set_kill_switch(self, enabled: bool) -> SystemControl:
+        control = SystemControl(
+            key="global_publish_paused",
+            value="true" if enabled else "false",
+            updated_at=utc_now_iso(),
+        )
+        self.controls.upsert("key", control.key, control.model_dump())
+        return control
+
+    def is_kill_switch_on(self) -> bool:
+        row = self.controls.find_one("key", "global_publish_paused")
+        return bool(row and row.get("value") == "true")
+
+    def health_check(self) -> HealthCheckStatus:
+        token_ok = bool(Path(".social_scheduler/secrets/tokens.enc").exists())
+        worker_ok = True
+        kill = self.is_kill_switch_on()
+        critical_failures = bool(self.posts.filter(lambda r: r.get("state") == PostState.FAILED.value))
+
+        overall = "pass" if token_ok and worker_ok and not critical_failures else "fail"
+        status = HealthCheckStatus(
+            id=self._new_id("health"),
+            date_local=datetime.now().astimezone().date().isoformat(),
+            checked_at=utc_now_iso(),
+            overall_status=overall,
+            token_status="ok" if token_ok else "missing_or_invalid",
+            worker_status="ok" if worker_ok else "down",
+            kill_switch_status="on" if kill else "off",
+            critical_failure_status="present" if critical_failures else "none",
+        )
+        self.health.append(status.model_dump())
+        return status
+
+    def due_posts(self, now_utc: datetime | None = None) -> list[SocialPost]:
+        if now_utc is None:
+            now_utc = datetime.now(tz=ZoneInfo("UTC"))
+        rows = self.posts.filter(
+            lambda r: r.get("state") == PostState.SCHEDULED.value
+            and r.get("scheduled_for_utc")
+            and datetime.fromisoformat(r["scheduled_for_utc"].replace("Z", "+00:00")) <= now_utc
+        )
+        return [SocialPost.model_validate(r) for r in rows]
+
+    def mark_post_result(
+        self,
+        post: SocialPost,
+        success: bool,
+        external_post_id: str | None = None,
+        error_message: str | None = None,
+    ) -> SocialPost:
+        if success:
+            ensure_transition(post.state, PostState.POSTED)
+            post.state = PostState.POSTED
+            post.posted_at = utc_now_iso()
+            post.external_post_id = external_post_id
+            post.last_error = None
+        else:
+            ensure_transition(post.state, PostState.FAILED)
+            post.state = PostState.FAILED
+            post.last_error = error_message
+        post.updated_at = utc_now_iso()
+        self.posts.upsert("id", post.id, post.model_dump())
+
+        attempt = SocialPostAttempt(
+            id=self._new_id("attempt"),
+            social_post_id=post.id,
+            attempt_number=self._next_attempt_number(post.id),
+            started_at=utc_now_iso(),
+            finished_at=utc_now_iso(),
+            result=AttemptResult.SUCCESS if success else AttemptResult.TRANSIENT_FAILURE,
+            error_message_redacted=error_message,
+        )
+        self.attempts.append(attempt.model_dump())
+        return post
+
+    def _next_attempt_number(self, post_id: str) -> int:
+        attempts = self.attempts.filter(lambda r: r.get("social_post_id") == post_id)
+        if not attempts:
+            return 1
+        return max(int(a.get("attempt_number", 0)) for a in attempts) + 1
