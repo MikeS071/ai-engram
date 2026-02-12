@@ -82,6 +82,33 @@ class SocialSchedulerService:
         suffix = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:8]
         return f"{prefix}_{suffix}"
 
+    def preflight_posts(
+        self,
+        stage: str,
+        campaign_id: str | None = None,
+        post_id: str | None = None,
+    ) -> dict[str, list[str]]:
+        if campaign_id and post_id:
+            raise ValueError("Provide campaign_id or post_id, not both")
+        if post_id:
+            row = self.posts.find_one("id", post_id)
+            if not row:
+                raise ValueError(f"Post not found: {post_id}")
+            posts = [SocialPost.model_validate(row)]
+        elif campaign_id:
+            posts = self.list_campaign_posts(campaign_id)
+            if not posts:
+                raise ValueError(f"No posts found for campaign: {campaign_id}")
+        else:
+            posts = [SocialPost.model_validate(r) for r in self.posts.read_all()]
+
+        out: dict[str, list[str]] = {}
+        for post in posts:
+            result = validate_post(post, stage=stage)
+            if not result.ok:
+                out[post.id] = result.errors
+        return out
+
     def create_campaign_from_blog(self, blog_path: str, audience_timezone: str) -> Campaign:
         blog_file = Path(blog_path)
         if not blog_file.exists():

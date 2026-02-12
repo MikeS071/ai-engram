@@ -56,3 +56,26 @@ def test_approve_campaign_fails_when_preflight_fails(tmp_path):
 
     with pytest.raises(ValueError, match="Preflight failed"):
         service.approve_campaign(campaign.id, editor_user="tester")
+
+
+def test_service_preflight_posts_returns_failures(tmp_path):
+    ensure_directories()
+    service = SocialSchedulerService()
+    _reset(service)
+
+    blog = tmp_path / "blog2.md"
+    blog.write_text("# Valid Title\nThis body has enough words to create baseline posts.", encoding="utf-8")
+    campaign = service.create_campaign_from_blog(str(blog), "America/New_York")
+    posts = service.list_campaign_posts(campaign.id)
+    assert len(posts) == 2
+
+    service.edit_post(posts[0].id, "Bad\n{{placeholder}}")
+    failures = service.preflight_posts(stage="pre_approval", campaign_id=campaign.id)
+    assert posts[0].id in failures
+
+
+def test_service_preflight_posts_rejects_mixed_selectors():
+    ensure_directories()
+    service = SocialSchedulerService()
+    with pytest.raises(ValueError, match="campaign_id or post_id"):
+        service.preflight_posts(stage="pre_approval", campaign_id="c1", post_id="p1")

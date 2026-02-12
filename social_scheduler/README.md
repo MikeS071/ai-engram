@@ -66,6 +66,7 @@ scripts/social-scheduler/run-telegram-webhook.sh 127.0.0.1 8080 /telegram https:
 
 # Analyze timing and approve campaign
 ./.venv/bin/python -m social_scheduler.main campaign-analyze-time <campaign_id>
+./.venv/bin/python -m social_scheduler.main preflight --stage pre_approval --campaign-id <campaign_id>
 ./.venv/bin/python -m social_scheduler.main campaign-approve <campaign_id>
 
 # Run one worker cycle

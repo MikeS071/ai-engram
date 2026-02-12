@@ -78,6 +78,22 @@ def campaign_analyze_time(campaign_id: str) -> None:
     )
 
 
+@app.command("preflight")
+def preflight(
+    stage: str = typer.Option("pre_approval", help="pre_approval|pre_schedule|pre_publish"),
+    campaign_id: str | None = typer.Option(None),
+    post_id: str | None = typer.Option(None),
+) -> None:
+    service = _service()
+    failures = service.preflight_posts(stage=stage, campaign_id=campaign_id, post_id=post_id)
+    if not failures:
+        typer.echo("Preflight OK")
+        return
+    for pid, errors in failures.items():
+        typer.echo(f"{pid}: {'; '.join(errors)}")
+    raise typer.Exit(code=1)
+
+
 @app.command("campaign-approve")
 def campaign_approve(campaign_id: str, actor: str = typer.Option("local-cli")) -> None:
     service = _service()
