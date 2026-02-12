@@ -55,6 +55,27 @@ class SocialSchedulerService:
         self.manual_overrides = JsonlStore(MANUAL_OVERRIDE_FILE)
         self.controls = JsonlStore(SYSTEM_CONTROLS_FILE)
 
+    def compact_data(self, store: str = "all") -> dict[str, int]:
+        stores = {
+            "campaigns": self.campaigns,
+            "posts": self.posts,
+            "attempts": self.attempts,
+            "rules": self.rules,
+            "telegram_audit": self.telegram_audit,
+            "telegram_decisions": self.telegram_decisions,
+            "telegram_rate": self.telegram_rate,
+            "confirm_tokens": self.confirm_tokens,
+            "health": self.health,
+            "manual_overrides": self.manual_overrides,
+            "controls": self.controls,
+        }
+        if store == "all":
+            return {name: target.compact() for name, target in stores.items()}
+        if store not in stores:
+            allowed = ", ".join(sorted(stores.keys()))
+            raise ValueError(f"Unknown store: {store}. Allowed: {allowed}, all")
+        return {store: stores[store].compact()}
+
     def _new_id(self, prefix: str) -> str:
         raw = f"{prefix}:{utc_now_iso()}:{uuid.uuid4().hex}"
         suffix = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:8]

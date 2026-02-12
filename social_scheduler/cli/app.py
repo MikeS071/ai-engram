@@ -168,6 +168,20 @@ def status(campaign_id: str | None = None) -> None:
         )
 
 
+@app.command("compact")
+def compact(store: str = typer.Argument("all", help="Store name or all")) -> None:
+    service = _service()
+    try:
+        result = service.compact_data(store=store)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    total = 0
+    for name, saved in result.items():
+        total += saved
+        typer.echo(f"{name}: reclaimed_bytes={saved}")
+    typer.echo(f"total_reclaimed_bytes={total}")
+
+
 @app.command("digest")
 def digest(kind: str = typer.Argument("daily", help="daily|weekly")) -> None:
     service = _service()
