@@ -104,6 +104,9 @@ class TelegramControl:
                 f"kill_switch={status.kill_switch_status}\n"
                 f"critical_failures={status.critical_failure_status}"
             )
+            if status.overall_status != "pass":
+                token = self.create_confirmation_token(action="health_recheck", target_id="system")
+                message += f"\nRecover: /confirm {token.id} (rerun health check)"
             if status.kill_switch_status == "on":
                 token = self.create_confirmation_token(action="kill_switch_off", target_id="global")
                 message += f"\nRecover: /confirm {token.id} (disable kill switch)"
@@ -320,6 +323,10 @@ class TelegramControl:
             post = self.service.cancel_scheduled_post(token.target_id)
             self._audit(user_id, "cancel_post_confirmed", token.id)
             return TelegramResult(True, f"Canceled post {post.id}")
+        if token.action == "health_recheck":
+            status = self.service.health_check()
+            self._audit(user_id, "health_recheck", token.id)
+            return TelegramResult(True, f"Health recheck={status.overall_status}")
 
         self._audit(user_id, f"token_consumed_{token.action}", token.id)
         return TelegramResult(True, f"Token consumed for action {token.action}")

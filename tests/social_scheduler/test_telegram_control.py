@@ -271,6 +271,32 @@ def test_health_returns_recovery_confirm_when_kill_switch_on():
         token_file.unlink(missing_ok=True)
 
 
+def test_health_fail_offers_recheck_confirmation():
+    ensure_directories()
+    service = SocialSchedulerService()
+    _reset(service)
+    control = TelegramControl(service, allowed_user_id="123")
+
+    # No token file and no worker heartbeat => health should fail.
+    result = control.handle_command("123", "/health")
+    assert result.ok
+    assert "Health=fail" in result.message
+    assert "rerun health check" in result.message
+    assert "/confirm tok_" in result.message
+
+
+def test_health_recheck_confirmation_token_executes_check():
+    ensure_directories()
+    service = SocialSchedulerService()
+    _reset(service)
+    control = TelegramControl(service, allowed_user_id="123")
+
+    token = control.create_confirmation_token(action="health_recheck", target_id="system")
+    result = control.handle_command("123", f"/confirm {token.id}")
+    assert result.ok
+    assert result.message.startswith("Health recheck=")
+
+
 def test_audit_decision_card_sent_records_message_id():
     ensure_directories()
     service = SocialSchedulerService()

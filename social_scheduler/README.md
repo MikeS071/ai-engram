@@ -102,4 +102,24 @@ scripts/social-scheduler/run-telegram-webhook.sh 127.0.0.1 8080 /telegram https:
 - Telegram control commands include `/health`, `/kill_on`, `/kill_off`, `/override <post_id>`, and `/cancel <post_id>`.
 - Critical actions use confirmation tokens and support one-tap inline `Confirm` in Telegram.
 - Structured lifecycle events are stored in `.social_scheduler/logs/events.jsonl`.
+- Publish request/response metadata is recorded as `publish_exchange` events with secret redaction.
 - If Telegram decision delivery fails, worker enters fail-safe pause by turning kill switch ON.
+- `/health` can return one-tap recovery actions, including rerun health-check confirmation tokens.
+- `integration-smoke` updates `release_gate_integration_tests` automatically (`pass`/`fail`).
+
+## Verification
+
+Use this sequence to validate runtime behavior and break-test guardrails:
+
+```bash
+# Full suite
+PYTHONPATH=. uv run pytest -q -s tests/social_scheduler
+
+# Compile/import sanity
+PYTHONPATH=. uv run python -m compileall -q social_scheduler tests/social_scheduler
+
+# Adversarial CLI checks (expect non-zero exits with clean error messages)
+PYTHONPATH=. uv run python -m social_scheduler.main rollout-stage set linkedin_live
+PYTHONPATH=. uv run python -m social_scheduler.main release-gate set invalid_gate pass
+PYTHONPATH=. uv run python -m social_scheduler.main post-retry missing_post
+```

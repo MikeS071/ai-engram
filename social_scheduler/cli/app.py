@@ -36,7 +36,11 @@ def campaign_create(
     audience_timezone: str = typer.Option("America/New_York", help="Audience timezone IANA"),
 ) -> None:
     service = _service()
-    campaign = service.create_campaign_from_blog(blog_path, audience_timezone)
+    try:
+        campaign = service.create_campaign_from_blog(blog_path, audience_timezone)
+    except Exception as exc:  # noqa: BLE001
+        typer.echo(str(exc))
+        raise typer.Exit(code=1)
     posts = service.list_campaign_posts(campaign.id)
     typer.echo(f"Campaign created: {campaign.id}")
     for post in posts:
@@ -71,7 +75,11 @@ def post_edit(
 @app.command("campaign-analyze-time")
 def campaign_analyze_time(campaign_id: str) -> None:
     service = _service()
-    rec = service.analyze_optimal_time(campaign_id)
+    try:
+        rec = service.analyze_optimal_time(campaign_id)
+    except Exception as exc:  # noqa: BLE001
+        typer.echo(str(exc))
+        raise typer.Exit(code=1)
     typer.echo(
         f"Recommended UTC={rec.recommended_time_utc} confidence={rec.confidence_score:.2f} "
         f"fallback={rec.fallback_used}\n{rec.reasoning_summary}"
@@ -97,21 +105,33 @@ def preflight(
 @app.command("campaign-approve")
 def campaign_approve(campaign_id: str, actor: str = typer.Option("local-cli")) -> None:
     service = _service()
-    approved = service.approve_campaign(campaign_id, editor_user=actor)
+    try:
+        approved = service.approve_campaign(campaign_id, editor_user=actor)
+    except Exception as exc:  # noqa: BLE001
+        typer.echo(str(exc))
+        raise typer.Exit(code=1)
     typer.echo(f"Approved {len(approved)} posts for campaign {campaign_id}")
 
 
 @app.command("campaign-schedule")
 def campaign_schedule(campaign_id: str, scheduled_utc: str) -> None:
     service = _service()
-    posts = service.schedule_campaign(campaign_id, scheduled_utc)
+    try:
+        posts = service.schedule_campaign(campaign_id, scheduled_utc)
+    except Exception as exc:  # noqa: BLE001
+        typer.echo(str(exc))
+        raise typer.Exit(code=1)
     typer.echo(f"Scheduled {len(posts)} posts at {scheduled_utc}")
 
 
 @app.command("dry-run-replay")
 def dry_run_replay(campaign_id: str) -> None:
     service = _service()
-    result = service.dry_run_replay_campaign(campaign_id)
+    try:
+        result = service.dry_run_replay_campaign(campaign_id)
+    except Exception as exc:  # noqa: BLE001
+        typer.echo(str(exc))
+        raise typer.Exit(code=1)
     typer.echo(f"Dry-run replay passed for campaign {result['campaign_id']}")
     for item in result["replayed_posts"]:
         typer.echo(
@@ -122,14 +142,22 @@ def dry_run_replay(campaign_id: str) -> None:
 @app.command("post-cancel")
 def post_cancel(post_id: str) -> None:
     service = _service()
-    post = service.cancel_scheduled_post(post_id)
+    try:
+        post = service.cancel_scheduled_post(post_id)
+    except Exception as exc:  # noqa: BLE001
+        typer.echo(str(exc))
+        raise typer.Exit(code=1)
     typer.echo(f"Canceled {post.id}; state={post.state.value}")
 
 
 @app.command("post-retry")
 def post_retry(post_id: str) -> None:
     service = _service()
-    post = service.retry_failed_post(post_id)
+    try:
+        post = service.retry_failed_post(post_id)
+    except Exception as exc:  # noqa: BLE001
+        typer.echo(str(exc))
+        raise typer.Exit(code=1)
     typer.echo(f"Retry queued {post.id}; state={post.state.value}; scheduled={post.scheduled_for_utc}")
 
 
