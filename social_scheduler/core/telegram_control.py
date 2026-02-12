@@ -161,8 +161,15 @@ class TelegramControl:
         return TelegramResult(False, "Unknown command")
 
     def expire_decision_requests(self) -> int:
+        expired, _ = self.expire_and_refresh_decision_requests(refresh=False)
+        return expired
+
+    def expire_and_refresh_decision_requests(
+        self, refresh: bool = False
+    ) -> tuple[int, list[TelegramDecisionRequest]]:
         now = datetime.utcnow().replace(tzinfo=ZoneInfo("UTC"))
         expired = 0
+        refreshed: list[TelegramDecisionRequest] = []
         rows = self.service.telegram_decisions.read_all()
         for row in rows:
             req = TelegramDecisionRequest.model_validate(row)
@@ -176,6 +183,10 @@ class TelegramControl:
             req.resolution_action = "timeout"
             self.service.telegram_decisions.upsert("id", req.id, req.model_dump())
             expired += 1
+            if refresh:
+                new_req = self.refresh_expired_request(req.id)
+                if new_req:
+                    refreshed.append(new_req)
 
             if req.social_post_id:
                 post_row = self.service.posts.find_one("id", req.social_post_id)
@@ -186,7 +197,7 @@ class TelegramControl:
                         post.updated_at = utc_now_iso()
                         self.service.posts.upsert("id", post.id, post.model_dump())
 
-        return expired
+        return expired, refreshed
 
     def reminder_candidates(self, min_interval_minutes: int = 30) -> list[TelegramDecisionRequest]:
         now = datetime.utcnow().replace(tzinfo=ZoneInfo("UTC"))

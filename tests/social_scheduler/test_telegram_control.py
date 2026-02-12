@@ -183,6 +183,29 @@ def test_refresh_expired_request_creates_new_open_request():
     assert refreshed_row["status"] == "open"
 
 
+def test_expire_and_refresh_decision_requests_creates_replacement():
+    ensure_directories()
+    service = SocialSchedulerService()
+    _reset(service)
+    control = TelegramControl(service, allowed_user_id="123")
+
+    req = control.create_decision_request(
+        request_type="approval",
+        message="approve post p4",
+        timeout_minutes=30,
+    )
+    row = service.telegram_decisions.find_one("id", req.id)
+    assert row is not None
+    row["expires_at"] = (datetime.now(tz=ZoneInfo("UTC")) - timedelta(minutes=1)).isoformat()
+    service.telegram_decisions.upsert("id", req.id, row)
+
+    expired, refreshed = control.expire_and_refresh_decision_requests(refresh=True)
+    assert expired == 1
+    assert len(refreshed) == 1
+    assert refreshed[0].status == "open"
+    assert refreshed[0].id != req.id
+
+
 def test_refresh_expired_confirmation_token_creates_new_token():
     ensure_directories()
     service = SocialSchedulerService()

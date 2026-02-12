@@ -31,9 +31,12 @@ class WorkerRunner:
         )
 
     def run_once(self, dry_run: bool = True) -> int:
-        expired = self.telegram_control.expire_decision_requests()
+        expired, refreshed = self.telegram_control.expire_and_refresh_decision_requests(refresh=True)
         if expired:
             self._safe_notify(f"{expired} Telegram decision request(s) expired.", critical=True)
+        for req in refreshed:
+            if self._safe_decision_reminder(req.id, req.message):
+                self.telegram_control.mark_reminded(req.id)
         for req in self.telegram_control.reminder_candidates():
             if self._safe_decision_reminder(req.id, req.message):
                 self.telegram_control.mark_reminded(req.id)

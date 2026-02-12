@@ -221,3 +221,35 @@ def test_worker_live_preflight_failure_marks_post_failed():
         assert "Preflight failed:" in (updated.get("last_error") or "")
     finally:
         token_file.unlink(missing_ok=True)
+
+
+def test_worker_auto_refreshes_expired_decision_and_sends_card():
+    ensure_directories()
+    service = SocialSchedulerService()
+    _reset(service)
+    service.telegram_decisions.append(
+        {
+            "id": "tgr_expired",
+            "request_type": "approval",
+            "message": "Approve campaign c9",
+            "status": "open",
+            "created_at": utc_now_iso(),
+            "expires_at": (datetime.now(tz=ZoneInfo("UTC")) - timedelta(minutes=1)).isoformat(),
+        }
+    )
+
+    runner = WorkerRunner(service)
+    sent: list[str] = []
+
+    def _card(request_id: str, message: str) -> str:
+        sent.append(f"{request_id}:{message}")
+        return "901"
+
+    runner.telegram.send_decision_card = _card  # type: ignore[assignment]
+    runner.telegram.send_message = lambda *_args, **_kwargs: None  # type: ignore[assignment]
+    runner.run_once(dry_run=True)
+
+    assert len(sent) >= 1
+    rows = service.telegram_decisions.read_all()
+    assert any(r["id"] == "tgr_expired" and r["status"] == "expired" for r in rows)
+    assert any(r["status"] == "open" and r["id"] != "tgr_expired" for r in rows)
