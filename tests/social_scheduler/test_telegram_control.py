@@ -126,3 +126,28 @@ def test_manual_override_confirm_schedules_post_now():
 
     audits = service.manual_overrides.read_all()
     assert len(audits) == 1
+
+
+def test_reminder_candidates_throttle_and_mark():
+    ensure_directories()
+    service = SocialSchedulerService()
+    _reset(service)
+    control = TelegramControl(service, allowed_user_id="123")
+
+    req = control.create_decision_request(
+        request_type="approval",
+        message="approve post p1",
+        timeout_minutes=30,
+    )
+
+    first = control.reminder_candidates(min_interval_minutes=30)
+    assert len(first) == 1
+    assert first[0].id == req.id
+
+    control.mark_reminded(req.id)
+    second = control.reminder_candidates(min_interval_minutes=30)
+    assert second == []
+
+    row = service.telegram_decisions.find_one("id", req.id)
+    assert row is not None
+    assert row["reminder_count"] == 1

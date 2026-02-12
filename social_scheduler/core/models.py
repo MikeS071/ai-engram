@@ -115,6 +115,8 @@ class TelegramDecisionRequest(BaseModel):
     status: Literal["open", "resolved", "expired"] = "open"
     created_at: str
     expires_at: str
+    last_reminder_at: str | None = None
+    reminder_count: int = 0
     resolved_at: str | None = None
     resolution_action: str | None = None
 

@@ -147,16 +147,35 @@ class TelegramControl:
 
         return expired
 
-    def reminder_candidates(self) -> list[TelegramDecisionRequest]:
+    def reminder_candidates(self, min_interval_minutes: int = 30) -> list[TelegramDecisionRequest]:
         now = datetime.utcnow().replace(tzinfo=ZoneInfo("UTC"))
         if self._in_quiet_hours_local(now):
             return []
         rows = self.service.telegram_decisions.read_all()
-        return [
-            TelegramDecisionRequest.model_validate(r)
-            for r in rows
-            if r.get("status") == "open" and datetime.fromisoformat(r["expires_at"]) > now
-        ]
+        out: list[TelegramDecisionRequest] = []
+        for row in rows:
+            if row.get("status") != "open":
+                continue
+            req = TelegramDecisionRequest.model_validate(row)
+            if datetime.fromisoformat(req.expires_at) <= now:
+                continue
+            if req.last_reminder_at:
+                last = datetime.fromisoformat(req.last_reminder_at.replace("Z", "+00:00"))
+                if now - last < timedelta(minutes=min_interval_minutes):
+                    continue
+            out.append(req)
+        return out
+
+    def mark_reminded(self, request_id: str) -> None:
+        row = self.service.telegram_decisions.find_one("id", request_id)
+        if not row:
+            return
+        req = TelegramDecisionRequest.model_validate(row)
+        if req.status != "open":
+            return
+        req.last_reminder_at = utc_now_iso()
+        req.reminder_count += 1
+        self.service.telegram_decisions.upsert("id", req.id, req.model_dump())
 
     def _resolve_request(self, user_id: str, request_id: str, action: str) -> TelegramResult:
         row = self.service.telegram_decisions.find_one("id", request_id)

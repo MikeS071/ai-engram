@@ -149,3 +149,36 @@ def test_health_gate_cycle_after_6am_requires_current_day():
     service.set_control("health_gate_last_pass_date", prev_day)
 
     assert not service.has_passed_health_gate_today(now_local=now_local)
+
+
+def test_worker_sends_decision_card_and_marks_reminder():
+    ensure_directories()
+    service = SocialSchedulerService()
+    _reset(service)
+    service.telegram_decisions.append(
+        {
+            "id": "tgr_test",
+            "request_type": "approval",
+            "message": "Approve campaign c1",
+            "status": "open",
+            "created_at": utc_now_iso(),
+            "expires_at": (datetime.now(tz=ZoneInfo("UTC")) + timedelta(minutes=20)).isoformat(),
+        }
+    )
+
+    runner = WorkerRunner(service)
+    sent: list[str] = []
+
+    def _card(request_id: str, message: str) -> None:
+        sent.append(f"{request_id}:{message}")
+
+    runner.telegram.send_decision_card = _card  # type: ignore[assignment]
+    runner.telegram.send_message = lambda *_args, **_kwargs: None  # type: ignore[assignment]
+
+    runner.run_once(dry_run=True)
+    assert len(sent) == 1
+    assert sent[0].startswith("tgr_test:")
+
+    row = service.telegram_decisions.find_one("id", "tgr_test")
+    assert row is not None
+    assert row["reminder_count"] == 1

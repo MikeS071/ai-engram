@@ -34,7 +34,8 @@ class WorkerRunner:
         if expired:
             self._safe_notify(f"{expired} Telegram decision request(s) expired.", critical=True)
         for req in self.telegram_control.reminder_candidates():
-            self._safe_notify(f"Reminder: {req.message}", critical=False)
+            if self._safe_decision_reminder(req.id, req.message):
+                self.telegram_control.mark_reminded(req.id)
         self._maybe_send_scheduled_reports()
 
         if is_publish_paused(self.service):
@@ -137,3 +138,14 @@ class WorkerRunner:
         except Exception:  # noqa: BLE001
             # Notification failures should not stop scheduling/publishing flow.
             pass
+
+    def _safe_decision_reminder(self, request_id: str, message: str) -> bool:
+        try:
+            self.telegram.send_decision_card(request_id=request_id, message=f"Reminder: {message}")
+            return True
+        except Exception:  # noqa: BLE001
+            try:
+                self.telegram.send_message(f"Reminder: {message}", critical=False)
+                return True
+            except Exception:  # noqa: BLE001
+                return False
