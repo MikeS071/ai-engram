@@ -151,3 +151,32 @@ def test_reminder_candidates_throttle_and_mark():
     row = service.telegram_decisions.find_one("id", req.id)
     assert row is not None
     assert row["reminder_count"] == 1
+
+
+def test_refresh_expired_request_creates_new_open_request():
+    ensure_directories()
+    service = SocialSchedulerService()
+    _reset(service)
+    control = TelegramControl(service, allowed_user_id="123")
+
+    req = control.create_decision_request(
+        request_type="approval",
+        message="approve post p2",
+        timeout_minutes=30,
+    )
+
+    row = service.telegram_decisions.find_one("id", req.id)
+    assert row is not None
+    row["expires_at"] = (datetime.now(tz=ZoneInfo("UTC")) - timedelta(minutes=1)).isoformat()
+    service.telegram_decisions.upsert("id", req.id, row)
+    assert control.expire_decision_requests() == 1
+
+    refreshed = control.refresh_expired_request(req.id, timeout_minutes=30)
+    assert refreshed is not None
+    assert refreshed.id != req.id
+    assert refreshed.status == "open"
+    assert refreshed.message == req.message
+
+    refreshed_row = service.telegram_decisions.find_one("id", refreshed.id)
+    assert refreshed_row is not None
+    assert refreshed_row["status"] == "open"

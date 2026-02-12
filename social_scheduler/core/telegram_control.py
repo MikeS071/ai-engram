@@ -177,6 +177,30 @@ class TelegramControl:
         req.reminder_count += 1
         self.service.telegram_decisions.upsert("id", req.id, req.model_dump())
 
+    def refresh_expired_request(
+        self, request_id: str, timeout_minutes: int = 30
+    ) -> TelegramDecisionRequest | None:
+        row = self.service.telegram_decisions.find_one("id", request_id)
+        if not row:
+            return None
+        req = TelegramDecisionRequest.model_validate(row)
+        if req.status != "expired":
+            return None
+
+        now = datetime.utcnow().replace(tzinfo=ZoneInfo("UTC"))
+        refreshed = TelegramDecisionRequest(
+            id=self.service._new_id("tgr"),  # noqa: SLF001
+            campaign_id=req.campaign_id,
+            social_post_id=req.social_post_id,
+            request_type=req.request_type,
+            message=req.message,
+            status="open",
+            created_at=now.isoformat(),
+            expires_at=(now + timedelta(minutes=timeout_minutes)).isoformat(),
+        )
+        self.service.telegram_decisions.append(refreshed.model_dump())
+        return refreshed
+
     def _resolve_request(self, user_id: str, request_id: str, action: str) -> TelegramResult:
         row = self.service.telegram_decisions.find_one("id", request_id)
         if not row:

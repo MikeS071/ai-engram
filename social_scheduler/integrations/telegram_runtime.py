@@ -57,11 +57,31 @@ class TelegramRuntime:
         if data.startswith("approve:"):
             req_id = data.split(":", 1)[1]
             result = self.control.handle_command(user_id, f"/approve {req_id}")
+            if not result.ok:
+                refreshed = self.control.refresh_expired_request(req_id)
+                if refreshed:
+                    await query.edit_message_text("Action card expired. Sent a fresh decision card.")
+                    if query.message:
+                        await query.message.reply_text(
+                            refreshed.message,
+                            reply_markup=self._decision_keyboard(refreshed.id),
+                        )
+                    return
             await query.edit_message_text(result.message)
             return
         if data.startswith("reject:"):
             req_id = data.split(":", 1)[1]
             result = self.control.handle_command(user_id, f"/reject {req_id}")
+            if not result.ok:
+                refreshed = self.control.refresh_expired_request(req_id)
+                if refreshed:
+                    await query.edit_message_text("Action card expired. Sent a fresh decision card.")
+                    if query.message:
+                        await query.message.reply_text(
+                            refreshed.message,
+                            reply_markup=self._decision_keyboard(refreshed.id),
+                        )
+                    return
             await query.edit_message_text(result.message)
             return
         if data.startswith("confirm:"):
@@ -74,14 +94,7 @@ class TelegramRuntime:
 
     async def send_decision_card(self, chat_id: str, request_id: str, message: str) -> None:
         app = Application.builder().token(self.token).build()
-        keyboard = InlineKeyboardMarkup(
-            [
-                [
-                    InlineKeyboardButton("Approve", callback_data=f"approve:{request_id}"),
-                    InlineKeyboardButton("Reject", callback_data=f"reject:{request_id}"),
-                ]
-            ]
-        )
+        keyboard = self._decision_keyboard(request_id)
         async with app:
             await app.bot.send_message(chat_id=chat_id, text=message, reply_markup=keyboard)
 
@@ -145,3 +158,14 @@ class TelegramRuntime:
     def _confirm_token_from_message(message: str) -> str | None:
         match = re.search(r"/confirm\s+([^\s]+)", message)
         return match.group(1) if match else None
+
+    @staticmethod
+    def _decision_keyboard(request_id: str) -> InlineKeyboardMarkup:
+        return InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton("Approve", callback_data=f"approve:{request_id}"),
+                    InlineKeyboardButton("Reject", callback_data=f"reject:{request_id}"),
+                ]
+            ]
+        )
