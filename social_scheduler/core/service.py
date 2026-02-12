@@ -7,7 +7,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from social_scheduler.core.approval_rules import should_auto_approve
-from social_scheduler.core.hashing import content_hash
+from social_scheduler.core.hashing import content_hash, idempotency_key
 from social_scheduler.core.models import (
     ApprovalRule,
     AttemptResult,
@@ -150,6 +150,38 @@ class SocialSchedulerService:
         if limit > 0:
             rows = rows[-limit:]
         return rows
+
+    def dry_run_replay_campaign(self, campaign_id: str) -> dict:
+        posts = self.list_campaign_posts(campaign_id)
+        if not posts:
+            raise ValueError(f"No posts found for campaign: {campaign_id}")
+
+        failures = self.preflight_posts(stage="pre_publish", campaign_id=campaign_id)
+        if failures:
+            self.set_release_gate("release_gate_dry_run_replay", passed=False)
+            raise ValueError(f"Dry-run replay preflight failed: {failures}")
+
+        replay_items: list[dict] = []
+        for post in posts:
+            approved_hash = post.approved_content_hash
+            if not approved_hash:
+                self.set_release_gate("release_gate_dry_run_replay", passed=False)
+                raise ValueError(f"Post {post.id} missing approved_content_hash")
+            replay_items.append(
+                {
+                    "post_id": post.id,
+                    "platform": post.platform,
+                    "idempotency_key": idempotency_key(post.campaign_id, post.platform, approved_hash),
+                }
+            )
+
+        self._log_event(
+            "dry_run_replay_passed",
+            campaign_id=campaign_id,
+            details={"replayed_posts": len(replay_items)},
+        )
+        self.set_release_gate("release_gate_dry_run_replay", passed=True)
+        return {"campaign_id": campaign_id, "replayed_posts": replay_items}
 
     def create_campaign_from_blog(self, blog_path: str, audience_timezone: str) -> Campaign:
         blog_file = Path(blog_path)

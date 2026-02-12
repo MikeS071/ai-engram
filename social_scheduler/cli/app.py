@@ -108,6 +108,17 @@ def campaign_schedule(campaign_id: str, scheduled_utc: str) -> None:
     typer.echo(f"Scheduled {len(posts)} posts at {scheduled_utc}")
 
 
+@app.command("dry-run-replay")
+def dry_run_replay(campaign_id: str) -> None:
+    service = _service()
+    result = service.dry_run_replay_campaign(campaign_id)
+    typer.echo(f"Dry-run replay passed for campaign {result['campaign_id']}")
+    for item in result["replayed_posts"]:
+        typer.echo(
+            f"- {item['post_id']} [{item['platform']}] idempotency_key={item['idempotency_key'][:12]}..."
+        )
+
+
 @app.command("post-cancel")
 def post_cancel(post_id: str) -> None:
     service = _service()
