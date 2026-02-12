@@ -22,3 +22,12 @@ class LinkedInClient:
             raise RuntimeError("LinkedIn access token missing from encrypted vault")
         # Placeholder for real API call integration.
         return f"li_live_{uuid.uuid4().hex[:10]}"
+
+    def verify_publish(self, post_id: str) -> str | None:
+        """
+        Resolve ambiguous publish outcomes by checking whether a post already exists.
+        Returns the external post id when confirmed, otherwise None.
+        """
+        # Placeholder until API read/lookup is implemented.
+        _ = post_id
+        return None

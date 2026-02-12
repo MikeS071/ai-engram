@@ -253,3 +253,38 @@ def test_worker_auto_refreshes_expired_decision_and_sends_card():
     rows = service.telegram_decisions.read_all()
     assert any(r["id"] == "tgr_expired" and r["status"] == "expired" for r in rows)
     assert any(r["status"] == "open" and r["id"] != "tgr_expired" for r in rows)
+
+
+def test_worker_ambiguous_publish_verifies_as_posted():
+    ensure_directories()
+    service = SocialSchedulerService()
+    _reset(service)
+    post = _seed_scheduled_post(service, "p_ambiguous_ok")
+
+    runner = WorkerRunner(service)
+    runner.x.publish_article = lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("ambiguous timeout"))  # type: ignore[assignment]
+    runner.x.verify_publish = lambda _post_id: "x_live_verified_1"  # type: ignore[assignment]
+
+    count = runner.run_once(dry_run=True)
+    assert count == 1
+    row = service.posts.find_one("id", post.id)
+    assert row is not None
+    assert row["state"] == PostState.POSTED.value
+    assert row["external_post_id"] == "x_live_verified_1"
+
+
+def test_worker_ambiguous_publish_unverified_reschedules_retry():
+    ensure_directories()
+    service = SocialSchedulerService()
+    _reset(service)
+    post = _seed_scheduled_post(service, "p_ambiguous_retry")
+
+    runner = WorkerRunner(service)
+    runner.x.publish_article = lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("ambiguous timeout"))  # type: ignore[assignment]
+    runner.x.verify_publish = lambda _post_id: None  # type: ignore[assignment]
+
+    count = runner.run_once(dry_run=True)
+    assert count == 0
+    row = service.posts.find_one("id", post.id)
+    assert row is not None
+    assert row["state"] == PostState.SCHEDULED.value

@@ -86,6 +86,16 @@ class WorkerRunner:
                 processed += 1
             except Exception as exc:  # noqa: BLE001
                 message = str(exc)
+                if self._is_ambiguous_error(message):
+                    verified_external_id = self._verify_ambiguous_publish(post)
+                    if verified_external_id:
+                        self.service.mark_post_result(
+                            post,
+                            success=True,
+                            external_post_id=verified_external_id,
+                        )
+                        processed += 1
+                        continue
                 transient = self._is_transient_error(message)
                 self.service.mark_post_result(
                     post,
@@ -117,6 +127,27 @@ class WorkerRunner:
         if any(marker in lower for marker in permanent_markers):
             return False
         return True
+
+    def _is_ambiguous_error(self, message: str) -> bool:
+        lower = message.lower()
+        markers = (
+            "ambiguous",
+            "timeout",
+            "timed out",
+            "connection reset",
+            "gateway timeout",
+        )
+        return any(marker in lower for marker in markers)
+
+    def _verify_ambiguous_publish(self, post) -> str | None:
+        try:
+            if post.platform == "linkedin":
+                return self.linkedin.verify_publish(post.id)
+            if post.platform == "x":
+                return self.x.verify_publish(post.id)
+        except Exception:  # noqa: BLE001
+            return None
+        return None
 
     def _maybe_send_scheduled_reports(self) -> None:
         now_local = datetime.now().astimezone()
