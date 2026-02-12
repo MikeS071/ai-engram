@@ -97,7 +97,21 @@ class TelegramControl:
         if cmd == "/health":
             status = self.service.health_check()
             self._audit(user_id, "health_check")
-            return TelegramResult(True, f"Health={status.overall_status}")
+            message = (
+                f"Health={status.overall_status}\n"
+                f"token={status.token_status}\n"
+                f"worker={status.worker_status}\n"
+                f"kill_switch={status.kill_switch_status}\n"
+                f"critical_failures={status.critical_failure_status}"
+            )
+            if status.kill_switch_status == "on":
+                token = self.create_confirmation_token(action="kill_switch_off", target_id="global")
+                message += f"\nRecover: /confirm {token.id} (disable kill switch)"
+            elif status.token_status != "ok":
+                message += "\nRecover: restore tokens with token-set in CLI."
+            elif status.critical_failure_status == "present":
+                message += "\nRecover: inspect failures with /digest and manual override as needed."
+            return TelegramResult(True, message)
 
         if cmd == "/digest":
             from social_scheduler.reports.digest import daily_digest

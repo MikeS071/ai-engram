@@ -86,3 +86,5 @@ scripts/social-scheduler/run-telegram-webhook.sh 127.0.0.1 8080 /telegram https:
 - Kill switch pauses queued and retry publishing.
 - Overdue posts require reconfirmation after kill-switch resume.
 - Telegram decision requests expire after 30 minutes and can transition posts to `pending_manual`.
+- Telegram control commands include `/health`, `/kill_on`, `/kill_off`, `/override <post_id>`, and `/cancel <post_id>`.
+- Critical actions use confirmation tokens and support one-tap inline `Confirm` in Telegram.

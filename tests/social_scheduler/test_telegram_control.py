@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from social_scheduler.core.models import PostState, SocialPost, utc_now_iso
@@ -225,3 +226,22 @@ def test_cancel_scheduled_post_requires_confirm_and_cancels():
     post_row = service.posts.find_one("id", "p_cancel")
     assert post_row is not None
     assert post_row["state"] == PostState.CANCELED.value
+
+
+def test_health_returns_recovery_confirm_when_kill_switch_on():
+    ensure_directories()
+    service = SocialSchedulerService()
+    _reset(service)
+    control = TelegramControl(service, allowed_user_id="123")
+
+    token_file = Path(".social_scheduler/secrets/tokens.enc")
+    token_file.parent.mkdir(parents=True, exist_ok=True)
+    token_file.write_text("encrypted-placeholder", encoding="utf-8")
+    try:
+        service.set_kill_switch(True)
+        result = control.handle_command("123", "/health")
+        assert result.ok
+        assert "kill_switch=on" in result.message
+        assert "Recover: /confirm tok_" in result.message
+    finally:
+        token_file.unlink(missing_ok=True)
