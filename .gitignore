@@ -31,3 +31,16 @@ AI and the Value of Expertise.md
 # Social scheduler runtime state
 .social_scheduler/
 
+# Split to Blog-Content-Repo
+Prompts/
+social_scheduler/
+scripts/social-scheduler/
+tests/social_scheduler/
+PRD - Automated Social Scheduling and Posting.md
+Pre-Implementation Checklist - Social Scheduler.md
+Implementation Plan - Social Scheduler.md
+Prompt - PRD creation workflow.md
+27_AI_sentinel_4a10a3bf-3269-46d6-a621-12ea1c871d3d.jpg
+.env.social-scheduler.example
+mastering-detailed-context-ai-content-generation.pdf
+Images/

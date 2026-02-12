@@ -18,7 +18,6 @@ AI Engram gives your AI assistant long-term memory and deep search over your mar
 - **Collection filtering** — scope searches to posts, outlines, prompts, or knowledge base
 - **Disk-cached embeddings** — pickle-based cache avoids recomputing embeddings on restart
 - **Standalone CLI** — full-featured command-line interface independent of MCP
-- **Social Scheduler (new)** — automated LinkedIn/X scheduling and publishing with Telegram-first approvals, safety gates, and JSONL storage
 
 ---
 
@@ -250,32 +249,6 @@ aiengram --memory-stats
 # Watch for markdown changes and auto-reindex
 aiengram --watch
 ```
-
-### Social Scheduler (CLI)
-
-```bash
-# Initialize scheduler runtime files
-./.venv/bin/python -m social_scheduler.main init
-
-# Create campaign from blog markdown
-./.venv/bin/python -m social_scheduler.main campaign-create 'Blog Posts/<file>.md' --audience-timezone 'America/New_York'
-
-# Run worker loop in dry-run mode
-./.venv/bin/python -m social_scheduler.main worker-daemon --interval-seconds 60 --dry-run true
-
-# Start Telegram bot (polling mode)
-./.venv/bin/python -m social_scheduler.main telegram-run
-
-# Compact scheduler JSONL stores
-./.venv/bin/python -m social_scheduler.main compact
-```
-
-Detailed scheduler setup and runbook:
-
-- `social_scheduler/README.md`
-- `.env.social-scheduler.example`
-
----
 
 ## How It Works
 
