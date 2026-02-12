@@ -11,6 +11,7 @@ from social_scheduler.core.service import SocialSchedulerService
 def _reset(service: SocialSchedulerService) -> None:
     service.campaigns.delete_where(lambda _: True)
     service.posts.delete_where(lambda _: True)
+    service.events.delete_where(lambda _: True)
 
 
 def _post(content: str, platform: str = "x") -> SocialPost:
@@ -79,3 +80,28 @@ def test_service_preflight_posts_rejects_mixed_selectors():
     service = SocialSchedulerService()
     with pytest.raises(ValueError, match="campaign_id or post_id"):
         service.preflight_posts(stage="pre_approval", campaign_id="c1", post_id="p1")
+
+
+def test_query_events_filters_and_limit(tmp_path):
+    ensure_directories()
+    service = SocialSchedulerService()
+    _reset(service)
+
+    blog = tmp_path / "blog3.md"
+    blog.write_text("# Title\nThis body has enough words to generate valid draft content quickly.", encoding="utf-8")
+    campaign = service.create_campaign_from_blog(str(blog), "America/New_York")
+    posts = service.list_campaign_posts(campaign.id)
+    assert len(posts) == 2
+
+    # campaign_created + two post_drafted events should exist.
+    all_events = service.query_events(limit=100)
+    assert len(all_events) >= 3
+
+    filtered_campaign = service.query_events(campaign_id=campaign.id, limit=100)
+    assert len(filtered_campaign) >= 3
+
+    filtered_post = service.query_events(post_id=posts[0].id, limit=100)
+    assert any(e.get("post_id") == posts[0].id for e in filtered_post)
+
+    limited = service.query_events(campaign_id=campaign.id, limit=1)
+    assert len(limited) == 1

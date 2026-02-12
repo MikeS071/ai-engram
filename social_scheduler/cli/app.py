@@ -184,6 +184,26 @@ def status(campaign_id: str | None = None) -> None:
         )
 
 
+@app.command("events")
+def events(
+    campaign_id: str | None = typer.Option(None),
+    post_id: str | None = typer.Option(None),
+    limit: int = typer.Option(50, min=1, max=500),
+) -> None:
+    service = _service()
+    rows = service.query_events(campaign_id=campaign_id, post_id=post_id, limit=limit)
+    if not rows:
+        typer.echo("No events found.")
+        return
+    for row in rows:
+        details = row.get("details") or {}
+        typer.echo(
+            f"{row.get('timestamp')} {row.get('event_type')} "
+            f"campaign={row.get('campaign_id') or '-'} post={row.get('post_id') or '-'} "
+            f"event_id={row.get('event_id')} details={details}"
+        )
+
+
 @app.command("compact")
 def compact(store: str = typer.Argument("all", help="Store name or all")) -> None:
     service = _service()

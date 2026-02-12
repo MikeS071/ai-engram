@@ -130,6 +130,21 @@ class SocialSchedulerService:
                 out[post.id] = result.errors
         return out
 
+    def query_events(
+        self,
+        campaign_id: str | None = None,
+        post_id: str | None = None,
+        limit: int = 50,
+    ) -> list[dict]:
+        rows = self.events.read_all()
+        if campaign_id:
+            rows = [r for r in rows if r.get("campaign_id") == campaign_id]
+        if post_id:
+            rows = [r for r in rows if r.get("post_id") == post_id]
+        if limit > 0:
+            rows = rows[-limit:]
+        return rows
+
     def create_campaign_from_blog(self, blog_path: str, audience_timezone: str) -> Campaign:
         blog_file = Path(blog_path)
         if not blog_file.exists():
