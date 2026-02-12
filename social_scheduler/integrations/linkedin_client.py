@@ -78,3 +78,24 @@ class LinkedInClient:
         if not isinstance(payload, dict):
             raise RuntimeError("LinkedIn API returned invalid JSON payload")
         return payload
+
+    def smoke_check(self, live: bool = False) -> tuple[bool, str]:
+        if not self.client_id or not self.client_secret:
+            return False, "LinkedIn credentials missing"
+        if not self.publish_url:
+            return False, "LINKEDIN_PUBLISH_URL missing"
+        if not self.verify_url:
+            return False, "LINKEDIN_VERIFY_URL missing"
+        access_token = self.vault.get_token("linkedin_access_token") if self.vault else None
+        if not access_token:
+            return False, "LinkedIn access token missing"
+        if not live:
+            return True, "LinkedIn config/token checks passed"
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                resp = client.get(self.verify_url, params={"probe": "1"}, headers={"Authorization": f"Bearer {access_token}"})
+            if resp.status_code >= 400:
+                return False, f"LinkedIn live probe failed status={resp.status_code}"
+            return True, "LinkedIn live probe passed"
+        except Exception as exc:  # noqa: BLE001
+            return False, f"LinkedIn live probe error: {exc}"

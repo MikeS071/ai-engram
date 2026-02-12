@@ -41,7 +41,10 @@ from social_scheduler.core.preflight import validate_post
 from social_scheduler.core.redaction import redact_secrets
 from social_scheduler.core.state_machine import ensure_transition
 from social_scheduler.core.storage_jsonl import JsonlStore
+from social_scheduler.core.token_vault import TokenVault
 from social_scheduler.core.timing_engine import Recommendation, recommend_post_time
+from social_scheduler.integrations.linkedin_client import LinkedInClient
+from social_scheduler.integrations.x_client import XClient
 
 
 class SocialSchedulerService:
@@ -463,6 +466,29 @@ class SocialSchedulerService:
         if gate not in self.RELEASE_GATES:
             raise ValueError(f"Invalid release gate: {gate}")
         return self.set_control(gate, "pass" if passed else "fail")
+
+    def run_integration_smoke(self, live: bool = False) -> dict:
+        vault = TokenVault() if Path(TOKENS_FILE).exists() else None
+        linkedin = LinkedInClient(vault=vault)
+        x = XClient(vault=vault)
+        li_ok, li_msg = linkedin.smoke_check(live=live)
+        x_ok, x_msg = x.smoke_check(live=live)
+        passed = li_ok and x_ok
+        self.set_release_gate("release_gate_integration_tests", passed=passed)
+        self._log_event(
+            "integration_smoke",
+            details={
+                "live": live,
+                "passed": passed,
+                "linkedin": {"ok": li_ok, "message": li_msg},
+                "x": {"ok": x_ok, "message": x_msg},
+            },
+        )
+        return {
+            "passed": passed,
+            "linkedin": {"ok": li_ok, "message": li_msg},
+            "x": {"ok": x_ok, "message": x_msg},
+        }
 
     def set_rollout_stage(self, stage: str) -> SystemControl:
         allowed = {"dry_run_only", "linkedin_live", "all_live"}

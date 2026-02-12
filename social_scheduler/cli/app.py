@@ -222,6 +222,17 @@ def release_gate(
     typer.echo(f"{control.key}={control.value}")
 
 
+@app.command("integration-smoke")
+def integration_smoke(live: bool = typer.Option(False, help="Run live endpoint probe")) -> None:
+    service = _service()
+    result = service.run_integration_smoke(live=live)
+    typer.echo(f"integration_smoke={'pass' if result['passed'] else 'fail'}")
+    typer.echo(f"linkedin={'ok' if result['linkedin']['ok'] else 'fail'}: {result['linkedin']['message']}")
+    typer.echo(f"x={'ok' if result['x']['ok'] else 'fail'}: {result['x']['message']}")
+    if not result["passed"]:
+        raise typer.Exit(code=1)
+
+
 @app.command("status")
 def status(campaign_id: str | None = None) -> None:
     service = _service()

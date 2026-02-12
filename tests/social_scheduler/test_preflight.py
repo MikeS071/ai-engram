@@ -152,3 +152,41 @@ def test_dry_run_replay_campaign_fails_without_approved_hash(tmp_path):
     with pytest.raises(ValueError, match="Dry-run replay preflight failed"):
         service.dry_run_replay_campaign(campaign.id)
     assert service.get_control("release_gate_dry_run_replay") == "fail"
+
+
+def test_run_integration_smoke_sets_release_gate_pass(monkeypatch):
+    ensure_directories()
+    service = SocialSchedulerService()
+    _reset(service)
+
+    monkeypatch.setattr(
+        "social_scheduler.integrations.linkedin_client.LinkedInClient.smoke_check",
+        lambda self, live=False: (True, "ok"),
+    )
+    monkeypatch.setattr(
+        "social_scheduler.integrations.x_client.XClient.smoke_check",
+        lambda self, live=False: (True, "ok"),
+    )
+
+    result = service.run_integration_smoke(live=False)
+    assert result["passed"] is True
+    assert service.get_control("release_gate_integration_tests") == "pass"
+
+
+def test_run_integration_smoke_sets_release_gate_fail(monkeypatch):
+    ensure_directories()
+    service = SocialSchedulerService()
+    _reset(service)
+
+    monkeypatch.setattr(
+        "social_scheduler.integrations.linkedin_client.LinkedInClient.smoke_check",
+        lambda self, live=False: (True, "ok"),
+    )
+    monkeypatch.setattr(
+        "social_scheduler.integrations.x_client.XClient.smoke_check",
+        lambda self, live=False: (False, "bad"),
+    )
+
+    result = service.run_integration_smoke(live=False)
+    assert result["passed"] is False
+    assert service.get_control("release_gate_integration_tests") == "fail"
