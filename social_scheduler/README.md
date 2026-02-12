@@ -75,6 +75,8 @@ scripts/social-scheduler/run-telegram-webhook.sh 127.0.0.1 8080 /telegram https:
 # Health and kill switch
 ./.venv/bin/python -m social_scheduler.main health
 ./.venv/bin/python -m social_scheduler.main kill-switch status
+./.venv/bin/python -m social_scheduler.main rollout-stage status
+./.venv/bin/python -m social_scheduler.main rollout-stage set linkedin_live
 
 # View lifecycle timeline events
 ./.venv/bin/python -m social_scheduler.main events --campaign-id <campaign_id> --limit 50

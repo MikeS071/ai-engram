@@ -403,3 +403,53 @@ def test_worker_pauses_when_telegram_unavailable_at_decision_time():
         and e["details"].get("request_id") == "tgr_outage"
         for e in service.events.read_all()
     )
+
+
+def test_worker_rollout_stage_dry_run_only_blocks_live_publish():
+    ensure_directories()
+    service = SocialSchedulerService()
+    _reset(service)
+    _seed_scheduled_post(service, "p_rollout_block")
+    service.set_rollout_stage("dry_run_only")
+
+    from pathlib import Path
+
+    token_file = Path(".social_scheduler/secrets/tokens.enc")
+    token_file.parent.mkdir(parents=True, exist_ok=True)
+    token_file.write_text("encrypted-placeholder", encoding="utf-8")
+    try:
+        service.set_worker_heartbeat()
+        service.health_check()
+        runner = WorkerRunner(service)
+        count = runner.run_once(dry_run=False)
+        assert count == 0
+        row = service.posts.find_one("id", "p_rollout_block")
+        assert row is not None
+        assert row["state"] == PostState.SCHEDULED.value
+    finally:
+        token_file.unlink(missing_ok=True)
+
+
+def test_worker_rollout_stage_linkedin_live_skips_x_live():
+    ensure_directories()
+    service = SocialSchedulerService()
+    _reset(service)
+    _seed_scheduled_post(service, "p_rollout_x")
+    service.set_rollout_stage("linkedin_live")
+
+    from pathlib import Path
+
+    token_file = Path(".social_scheduler/secrets/tokens.enc")
+    token_file.parent.mkdir(parents=True, exist_ok=True)
+    token_file.write_text("encrypted-placeholder", encoding="utf-8")
+    try:
+        service.set_worker_heartbeat()
+        service.health_check()
+        runner = WorkerRunner(service)
+        count = runner.run_once(dry_run=False)
+        assert count == 0
+        row = service.posts.find_one("id", "p_rollout_x")
+        assert row is not None
+        assert row["state"] == PostState.SCHEDULED.value
+    finally:
+        token_file.unlink(missing_ok=True)

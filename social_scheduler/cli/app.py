@@ -165,6 +165,22 @@ def kill_switch(action: str = typer.Argument(..., help="on|off|status")) -> None
     typer.echo(f"Kill switch set to {control.value}")
 
 
+@app.command("rollout-stage")
+def rollout_stage(action: str = typer.Argument("status"), stage: str = typer.Argument("all_live")) -> None:
+    service = _service()
+    action_l = action.lower()
+    if action_l == "status":
+        typer.echo(service.get_rollout_stage())
+        return
+    if action_l != "set":
+        raise typer.BadParameter("action must be status or set")
+    try:
+        control = service.set_rollout_stage(stage)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    typer.echo(f"rollout_stage={control.value}")
+
+
 @app.command("status")
 def status(campaign_id: str | None = None) -> None:
     service = _service()

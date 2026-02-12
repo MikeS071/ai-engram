@@ -375,6 +375,15 @@ class SocialSchedulerService:
         now = now_utc or datetime.now(tz=ZoneInfo("UTC"))
         self.set_control("worker_last_heartbeat_utc", now.isoformat())
 
+    def get_rollout_stage(self) -> str:
+        return self.get_control("rollout_stage") or "all_live"
+
+    def set_rollout_stage(self, stage: str) -> SystemControl:
+        allowed = {"dry_run_only", "linkedin_live", "all_live"}
+        if stage not in allowed:
+            raise ValueError(f"Invalid rollout stage: {stage}. Allowed: {', '.join(sorted(allowed))}")
+        return self.set_control("rollout_stage", stage)
+
     def health_check(self) -> HealthCheckStatus:
         token_ok = bool(TOKENS_FILE.exists() and TOKENS_FILE.stat().st_size > 0)
         worker_ok = False

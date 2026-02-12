@@ -67,6 +67,8 @@ class WorkerRunner:
             try:
                 if post.state != PostState.SCHEDULED:
                     continue
+                if not dry_run and not self._is_live_platform_allowed(post.platform):
+                    continue
                 if not self.service.should_publish_missed_schedule(post):
                     self._safe_notify(
                         f"Post {post.id} requires reconfirmation (>2h overdue).",
@@ -172,6 +174,16 @@ class WorkerRunner:
     def _publish_idempotency_key(self, post) -> str:
         approved_hash = post.approved_content_hash or content_hash(post.content)
         return idempotency_key(post.campaign_id, post.platform, approved_hash)
+
+    def _is_live_platform_allowed(self, platform: str) -> bool:
+        stage = self.service.get_rollout_stage()
+        if stage == "all_live":
+            return True
+        if stage == "linkedin_live":
+            return platform == "linkedin"
+        if stage == "dry_run_only":
+            return False
+        return True
 
     def _maybe_send_scheduled_reports(self) -> None:
         now_local = datetime.now().astimezone()
