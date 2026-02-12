@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from social_scheduler.core.models import PostState
+from social_scheduler.core.hashing import content_hash, idempotency_key
 from social_scheduler.core.preflight import validate_post
 from social_scheduler.core.service import SocialSchedulerService
 from social_scheduler.core.telegram_control import TelegramControl
@@ -76,9 +77,17 @@ class WorkerRunner:
                         )
                         continue
                 if post.platform == "linkedin":
-                    external_id = self.linkedin.publish_article(post.content, dry_run=dry_run)
+                    external_id = self.linkedin.publish_article(
+                        post.content,
+                        dry_run=dry_run,
+                        idempotency_key=self._publish_idempotency_key(post),
+                    )
                 elif post.platform == "x":
-                    external_id = self.x.publish_article(post.content, dry_run=dry_run)
+                    external_id = self.x.publish_article(
+                        post.content,
+                        dry_run=dry_run,
+                        idempotency_key=self._publish_idempotency_key(post),
+                    )
                 else:
                     raise RuntimeError(f"Unsupported platform: {post.platform}")
 
@@ -148,6 +157,10 @@ class WorkerRunner:
         except Exception:  # noqa: BLE001
             return None
         return None
+
+    def _publish_idempotency_key(self, post) -> str:
+        approved_hash = post.approved_content_hash or content_hash(post.content)
+        return idempotency_key(post.campaign_id, post.platform, approved_hash)
 
     def _maybe_send_scheduled_reports(self) -> None:
         now_local = datetime.now().astimezone()

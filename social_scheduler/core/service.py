@@ -26,6 +26,7 @@ from social_scheduler.core.paths import (
     ATTEMPTS_FILE,
     CAMPAIGNS_FILE,
     CONFIRM_TOKENS_FILE,
+    EVENTS_FILE,
     HEALTH_FILE,
     MANUAL_OVERRIDE_FILE,
     POSTS_FILE,
@@ -55,6 +56,7 @@ class SocialSchedulerService:
         self.health = JsonlStore(HEALTH_FILE)
         self.manual_overrides = JsonlStore(MANUAL_OVERRIDE_FILE)
         self.controls = JsonlStore(SYSTEM_CONTROLS_FILE)
+        self.events = JsonlStore(EVENTS_FILE)
 
     def compact_data(self, store: str = "all") -> dict[str, int]:
         stores = {
@@ -69,6 +71,7 @@ class SocialSchedulerService:
             "health": self.health,
             "manual_overrides": self.manual_overrides,
             "controls": self.controls,
+            "events": self.events,
         }
         if store == "all":
             return {name: target.compact() for name, target in stores.items()}
@@ -81,6 +84,24 @@ class SocialSchedulerService:
         raw = f"{prefix}:{utc_now_iso()}:{uuid.uuid4().hex}"
         suffix = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:8]
         return f"{prefix}_{suffix}"
+
+    def _log_event(
+        self,
+        event_type: str,
+        campaign_id: str | None = None,
+        post_id: str | None = None,
+        details: dict | None = None,
+    ) -> None:
+        self.events.append(
+            {
+                "event_id": self._new_id("evt"),
+                "event_type": event_type,
+                "campaign_id": campaign_id,
+                "post_id": post_id,
+                "timestamp": utc_now_iso(),
+                "details": details or {},
+            }
+        )
 
     def preflight_posts(
         self,
@@ -124,6 +145,7 @@ class SocialSchedulerService:
             updated_at=now,
         )
         self.campaigns.append(campaign.model_dump())
+        self._log_event("campaign_created", campaign_id=campaign.id, details={"source_blog_path": blog_path})
 
         for platform in ("linkedin", "x"):
             post = SocialPost(
@@ -136,6 +158,12 @@ class SocialSchedulerService:
                 updated_at=now,
             )
             self.posts.append(post.model_dump())
+            self._log_event(
+                "post_drafted",
+                campaign_id=campaign.id,
+                post_id=post.id,
+                details={"platform": platform},
+            )
 
         return campaign
 
@@ -163,6 +191,7 @@ class SocialSchedulerService:
             ensure_transition(post.state, PostState.READY_FOR_APPROVAL)
             post.state = PostState.READY_FOR_APPROVAL
         self.posts.upsert("id", post.id, post.model_dump())
+        self._log_event("post_edited", campaign_id=post.campaign_id, post_id=post.id)
         return post
 
     def analyze_optimal_time(self, campaign_id: str) -> Recommendation:
@@ -212,6 +241,12 @@ class SocialSchedulerService:
             post.updated_at = utc_now_iso()
             self.posts.upsert("id", post.id, post.model_dump())
             approved.append(post)
+            self._log_event(
+                "post_approved",
+                campaign_id=campaign_id,
+                post_id=post.id,
+                details={"approval_mode": "auto" if auto else "manual"},
+            )
 
             audit = TelegramDecisionAudit(
                 id=self._new_id("tg"),
@@ -289,6 +324,12 @@ class SocialSchedulerService:
             post.scheduled_for_utc = scheduled.isoformat()
             post.updated_at = utc_now_iso()
             self.posts.upsert("id", post.id, post.model_dump())
+            self._log_event(
+                "post_scheduled",
+                campaign_id=campaign_id,
+                post_id=post.id,
+                details={"scheduled_for_utc": post.scheduled_for_utc},
+            )
         return posts
 
     def set_kill_switch(self, enabled: bool) -> SystemControl:
@@ -383,6 +424,17 @@ class SocialSchedulerService:
             post.last_error = error_message
         post.updated_at = utc_now_iso()
         self.posts.upsert("id", post.id, post.model_dump())
+        self._log_event(
+            "post_publish_result",
+            campaign_id=post.campaign_id,
+            post_id=post.id,
+            details={
+                "success": success,
+                "state": post.state.value,
+                "external_post_id": external_post_id,
+                "transient": transient,
+            },
+        )
 
         attempt = SocialPostAttempt(
             id=self._new_id("attempt"),
@@ -409,6 +461,12 @@ class SocialSchedulerService:
                 post.scheduled_for_utc = (datetime.now(tz=ZoneInfo("UTC")) + delay).isoformat()
                 post.updated_at = utc_now_iso()
                 self.posts.upsert("id", post.id, post.model_dump())
+                self._log_event(
+                    "post_retry_scheduled",
+                    campaign_id=post.campaign_id,
+                    post_id=post.id,
+                    details={"scheduled_for_utc": post.scheduled_for_utc},
+                )
         return post
 
     def cancel_scheduled_post(self, post_id: str) -> SocialPost:
@@ -422,6 +480,7 @@ class SocialSchedulerService:
         post.state = PostState.CANCELED
         post.updated_at = utc_now_iso()
         self.posts.upsert("id", post.id, post.model_dump())
+        self._log_event("post_canceled", campaign_id=post.campaign_id, post_id=post.id)
         return post
 
     def manual_override_publish(
@@ -443,6 +502,12 @@ class SocialSchedulerService:
         post.scheduled_for_utc = datetime.now(tz=ZoneInfo("UTC")).isoformat()
         post.updated_at = utc_now_iso()
         self.posts.upsert("id", post.id, post.model_dump())
+        self._log_event(
+            "manual_override_publish",
+            campaign_id=post.campaign_id,
+            post_id=post.id,
+            details={"telegram_user_id": telegram_user_id},
+        )
 
         audit = ManualOverrideAudit(
             id=self._new_id("ovr"),

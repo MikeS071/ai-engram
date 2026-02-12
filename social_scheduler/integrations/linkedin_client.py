@@ -12,7 +12,13 @@ class LinkedInClient:
         self.client_secret = os.getenv("LINKEDIN_CLIENT_SECRET")
         self.vault = vault
 
-    def publish_article(self, content: str, dry_run: bool = True) -> str:
+    def publish_article(
+        self,
+        content: str,
+        dry_run: bool = True,
+        idempotency_key: str | None = None,
+    ) -> str:
+        _ = idempotency_key
         if dry_run:
             return f"li_dry_{uuid.uuid4().hex[:10]}"
         if not self.client_id or not self.client_secret:

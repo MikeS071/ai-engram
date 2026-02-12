@@ -32,6 +32,7 @@ def _reset(service: SocialSchedulerService) -> None:
     service.confirm_tokens.delete_where(lambda _: True)
     service.controls.delete_where(lambda _: True)
     service.manual_overrides.delete_where(lambda _: True)
+    service.events.delete_where(lambda _: True)
 
 
 def test_unauthorized_user_rejected():

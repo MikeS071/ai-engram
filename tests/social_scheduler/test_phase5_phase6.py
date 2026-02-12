@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from social_scheduler.core.models import PostState, SocialPost, utc_now_iso
+from social_scheduler.core.hashing import idempotency_key
 from social_scheduler.core.paths import ensure_directories
 from social_scheduler.core.service import SocialSchedulerService
 from social_scheduler.worker.health_gate import can_publish_now
@@ -17,6 +18,7 @@ def _reset(service: SocialSchedulerService) -> None:
     service.telegram_audit.delete_where(lambda _: True)
     service.controls.delete_where(lambda _: True)
     service.health.delete_where(lambda _: True)
+    service.events.delete_where(lambda _: True)
 
 
 def _seed_scheduled_post(service: SocialSchedulerService, post_id: str, offset_minutes: int = -1) -> SocialPost:
@@ -271,6 +273,12 @@ def test_worker_ambiguous_publish_verifies_as_posted():
     assert row is not None
     assert row["state"] == PostState.POSTED.value
     assert row["external_post_id"] == "x_live_verified_1"
+    assert any(
+        e["event_type"] == "post_publish_result"
+        and e["post_id"] == post.id
+        and e["details"].get("success") is True
+        for e in service.events.read_all()
+    )
 
 
 def test_worker_ambiguous_publish_unverified_reschedules_retry():
@@ -288,3 +296,24 @@ def test_worker_ambiguous_publish_unverified_reschedules_retry():
     row = service.posts.find_one("id", post.id)
     assert row is not None
     assert row["state"] == PostState.SCHEDULED.value
+
+
+def test_worker_passes_deterministic_idempotency_key_to_publish_client():
+    ensure_directories()
+    service = SocialSchedulerService()
+    _reset(service)
+    post = _seed_scheduled_post(service, "p_idem")
+
+    runner = WorkerRunner(service)
+    captured: dict[str, str] = {}
+
+    def _publish(_content: str, dry_run: bool = True, idempotency_key: str | None = None) -> str:
+        assert dry_run is True
+        captured["key"] = idempotency_key or ""
+        return "x_dry_fixed"
+
+    runner.x.publish_article = _publish  # type: ignore[assignment]
+    runner.run_once(dry_run=True)
+
+    expected = idempotency_key(post.campaign_id, post.platform, post.approved_content_hash or "")
+    assert captured.get("key") == expected

@@ -20,6 +20,7 @@ MANUAL_OVERRIDE_FILE = DATA_DIR / "manual_override_audit.jsonl"
 SYSTEM_CONTROLS_FILE = DATA_DIR / "system_controls.jsonl"
 TELEGRAM_DECISIONS_FILE = DATA_DIR / "telegram_decisions.jsonl"
 CONFIRM_TOKENS_FILE = DATA_DIR / "confirmation_tokens.jsonl"
+EVENTS_FILE = LOG_DIR / "events.jsonl"
 
 ALL_FILES = [
     CAMPAIGNS_FILE,
@@ -33,6 +34,7 @@ ALL_FILES = [
     SYSTEM_CONTROLS_FILE,
     TELEGRAM_DECISIONS_FILE,
     CONFIRM_TOKENS_FILE,
+    EVENTS_FILE,
 ]
 
 
