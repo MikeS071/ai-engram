@@ -141,7 +141,12 @@ class WorkerRunner:
 
     def _safe_decision_reminder(self, request_id: str, message: str) -> bool:
         try:
-            self.telegram.send_decision_card(request_id=request_id, message=f"Reminder: {message}")
+            message_id = self.telegram.send_decision_card(request_id=request_id, message=f"Reminder: {message}")
+            self.telegram_control.audit_decision_card_sent(
+                telegram_user_id=self.telegram_control.allowed_user_id,
+                request_id=request_id,
+                message_id=message_id,
+            )
             return True
         except Exception:  # noqa: BLE001
             try:

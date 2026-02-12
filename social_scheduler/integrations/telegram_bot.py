@@ -30,9 +30,9 @@ class TelegramNotifier:
                     time.sleep(delay)
         raise RuntimeError(f"Telegram send failed after retries: {last_exc}")
 
-    def send_decision_card(self, request_id: str, message: str) -> None:
+    def send_decision_card(self, request_id: str, message: str) -> str | None:
         if not self.token or not self.allowed_user_id:
-            return
+            return None
         url = f"https://api.telegram.org/bot{self.token}/sendMessage"
         payload = self._message_payload(
             text=message,
@@ -53,7 +53,10 @@ class TelegramNotifier:
                 with httpx.Client(timeout=10.0) as client:
                     resp = client.post(url, json=payload)
                     resp.raise_for_status()
-                return
+                    data = resp.json()
+                result = data.get("result", {}) if isinstance(data, dict) else {}
+                message_id = result.get("message_id")
+                return None if message_id is None else str(message_id)
             except Exception as exc:  # noqa: BLE001
                 last_exc = exc
                 if idx < len(delays):

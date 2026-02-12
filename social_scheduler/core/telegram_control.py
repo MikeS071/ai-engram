@@ -218,6 +218,21 @@ class TelegramControl:
         req.reminder_count += 1
         self.service.telegram_decisions.upsert("id", req.id, req.model_dump())
 
+    def audit_decision_card_sent(self, telegram_user_id: str, request_id: str, message_id: str | None) -> None:
+        row = self.service.telegram_decisions.find_one("id", request_id)
+        req = TelegramDecisionRequest.model_validate(row) if row else None
+        audit = TelegramDecisionAudit(
+            id=self.service._new_id("tga"),  # noqa: SLF001
+            campaign_id=req.campaign_id if req else None,
+            social_post_id=req.social_post_id if req else None,
+            telegram_user_id=telegram_user_id,
+            telegram_message_id=message_id,
+            action="decision_card_sent",
+            decision_token_id=request_id,
+            created_at=utc_now_iso(),
+        )
+        self.service.telegram_audit.append(audit.model_dump())
+
     def refresh_expired_request(
         self, request_id: str, timeout_minutes: int = 30
     ) -> TelegramDecisionRequest | None:

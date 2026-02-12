@@ -245,3 +245,22 @@ def test_health_returns_recovery_confirm_when_kill_switch_on():
         assert "Recover: /confirm tok_" in result.message
     finally:
         token_file.unlink(missing_ok=True)
+
+
+def test_audit_decision_card_sent_records_message_id():
+    ensure_directories()
+    service = SocialSchedulerService()
+    _reset(service)
+    control = TelegramControl(service, allowed_user_id="123")
+    req = control.create_decision_request(
+        request_type="approval",
+        message="approve post p3",
+        timeout_minutes=30,
+    )
+
+    control.audit_decision_card_sent("123", req.id, "456")
+    rows = service.telegram_audit.read_all()
+    assert len(rows) == 1
+    assert rows[0]["action"] == "decision_card_sent"
+    assert rows[0]["telegram_message_id"] == "456"
+    assert rows[0]["decision_token_id"] == req.id

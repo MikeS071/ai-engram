@@ -14,6 +14,7 @@ def _reset(service: SocialSchedulerService) -> None:
     service.posts.delete_where(lambda _: True)
     service.attempts.delete_where(lambda _: True)
     service.telegram_decisions.delete_where(lambda _: True)
+    service.telegram_audit.delete_where(lambda _: True)
     service.controls.delete_where(lambda _: True)
     service.health.delete_where(lambda _: True)
 
@@ -169,8 +170,9 @@ def test_worker_sends_decision_card_and_marks_reminder():
     runner = WorkerRunner(service)
     sent: list[str] = []
 
-    def _card(request_id: str, message: str) -> None:
+    def _card(request_id: str, message: str) -> str:
         sent.append(f"{request_id}:{message}")
+        return "789"
 
     runner.telegram.send_decision_card = _card  # type: ignore[assignment]
     runner.telegram.send_message = lambda *_args, **_kwargs: None  # type: ignore[assignment]
@@ -182,3 +184,7 @@ def test_worker_sends_decision_card_and_marks_reminder():
     row = service.telegram_decisions.find_one("id", "tgr_test")
     assert row is not None
     assert row["reminder_count"] == 1
+    audits = service.telegram_audit.read_all()
+    assert len(audits) == 1
+    assert audits[0]["action"] == "decision_card_sent"
+    assert audits[0]["telegram_message_id"] == "789"
