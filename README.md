@@ -265,6 +265,9 @@ aiengram --watch
 
 # Start Telegram bot (polling mode)
 ./.venv/bin/python -m social_scheduler.main telegram-run
+
+# Compact scheduler JSONL stores
+./.venv/bin/python -m social_scheduler.main compact
 ```
 
 Detailed scheduler setup and runbook:

@@ -74,6 +74,10 @@ scripts/social-scheduler/run-telegram-webhook.sh 127.0.0.1 8080 /telegram https:
 # Health and kill switch
 ./.venv/bin/python -m social_scheduler.main health
 ./.venv/bin/python -m social_scheduler.main kill-switch status
+
+# Reclaim JSONL storage space (all stores or a specific store)
+./.venv/bin/python -m social_scheduler.main compact
+./.venv/bin/python -m social_scheduler.main compact posts
 ```
 
 ## Operational Notes
