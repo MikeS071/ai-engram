@@ -32,19 +32,19 @@ class WorkerRunner:
     def run_once(self, dry_run: bool = True) -> int:
         expired = self.telegram_control.expire_decision_requests()
         if expired:
-            self.telegram.send_message(f"{expired} Telegram decision request(s) expired.", critical=True)
+            self._safe_notify(f"{expired} Telegram decision request(s) expired.", critical=True)
         for req in self.telegram_control.reminder_candidates():
-            self.telegram.send_message(f"Reminder: {req.message}", critical=False)
+            self._safe_notify(f"Reminder: {req.message}", critical=False)
         self._maybe_send_scheduled_reports()
 
         if is_publish_paused(self.service):
-            self.telegram.send_message("Publish worker run skipped: kill switch is ON.", critical=True)
+            self._safe_notify("Publish worker run skipped: kill switch is ON.", critical=True)
             return 0
         if not dry_run:
             ok, reason = can_publish_now(self.service)
             if not ok:
                 if self._should_send_health_alert():
-                    self.telegram.send_message(
+                    self._safe_notify(
                         f"Publish worker blocked by health gate: {reason}",
                         critical=True,
                     )
@@ -74,7 +74,7 @@ class WorkerRunner:
                     error_message=message,
                     transient=transient,
                 )
-                self.telegram.send_message(
+                self._safe_notify(
                     f"Post failed for {post.platform} ({post.id}): {exc}", critical=True
                 )
 
@@ -108,13 +108,13 @@ class WorkerRunner:
         if hm in daily_slots:
             control_key = f"daily_digest_sent:{minute_key}"
             if self.service.get_control(control_key) != "1":
-                self.telegram.send_message(daily_digest(self.service), critical=False)
+                self._safe_notify(daily_digest(self.service), critical=False)
                 self.service.set_control(control_key, "1")
 
         if now_local.weekday() == 0 and hm == "20:00":
             control_key = f"weekly_digest_sent:{minute_key}"
             if self.service.get_control(control_key) != "1":
-                self.telegram.send_message(weekly_summary(self.service), critical=False)
+                self._safe_notify(weekly_summary(self.service), critical=False)
                 self.service.set_control(control_key, "1")
 
     def _should_send_health_alert(self) -> bool:
@@ -130,3 +130,10 @@ class WorkerRunner:
                 pass
         self.service.set_control(key, now.isoformat())
         return True
+
+    def _safe_notify(self, text: str, critical: bool) -> None:
+        try:
+            self.telegram.send_message(text, critical=critical)
+        except Exception:  # noqa: BLE001
+            # Notification failures should not stop scheduling/publishing flow.
+            pass

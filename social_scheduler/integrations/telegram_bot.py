@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 
 import httpx
 
@@ -19,5 +20,16 @@ class TelegramNotifier:
             "text": text,
             "disable_notification": not critical,
         }
-        with httpx.Client(timeout=10.0) as client:
-            client.post(url, json=payload)
+        delays = [0.5, 1.5, 3.0]
+        last_exc: Exception | None = None
+        for idx, delay in enumerate(delays, start=1):
+            try:
+                with httpx.Client(timeout=10.0) as client:
+                    resp = client.post(url, json=payload)
+                    resp.raise_for_status()
+                return
+            except Exception as exc:  # noqa: BLE001
+                last_exc = exc
+                if idx < len(delays):
+                    time.sleep(delay)
+        raise RuntimeError(f"Telegram send failed after retries: {last_exc}")

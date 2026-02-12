@@ -78,6 +78,22 @@ def test_worker_blocks_live_publish_when_health_fails():
     assert row["state"] == PostState.SCHEDULED.value
 
 
+def test_worker_notification_failures_do_not_crash_run():
+    ensure_directories()
+    service = SocialSchedulerService()
+    _reset(service)
+    _seed_scheduled_post(service, "p_notify")
+
+    runner = WorkerRunner(service)
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError("notify failed")
+
+    runner.telegram.send_message = _boom  # type: ignore[assignment]
+    count = runner.run_once(dry_run=True)
+    assert count >= 0
+
+
 def test_live_publish_requires_daily_health_gate_pass():
     ensure_directories()
     service = SocialSchedulerService()
@@ -107,3 +123,29 @@ def test_health_check_sets_gate_pass_for_today():
         assert service.has_passed_health_gate_today()
     finally:
         token_file.unlink(missing_ok=True)
+
+
+def test_health_gate_cycle_before_6am_uses_previous_day():
+    ensure_directories()
+    service = SocialSchedulerService()
+    _reset(service)
+
+    tz = datetime.now().astimezone().tzinfo
+    now_local = datetime(2026, 2, 13, 5, 30, tzinfo=tz)
+    prev_day = (now_local.date() - timedelta(days=1)).isoformat()
+    service.set_control("health_gate_last_pass_date", prev_day)
+
+    assert service.has_passed_health_gate_today(now_local=now_local)
+
+
+def test_health_gate_cycle_after_6am_requires_current_day():
+    ensure_directories()
+    service = SocialSchedulerService()
+    _reset(service)
+
+    tz = datetime.now().astimezone().tzinfo
+    now_local = datetime(2026, 2, 13, 6, 1, tzinfo=tz)
+    prev_day = (now_local.date() - timedelta(days=1)).isoformat()
+    service.set_control("health_gate_last_pass_date", prev_day)
+
+    assert not service.has_passed_health_gate_today(now_local=now_local)

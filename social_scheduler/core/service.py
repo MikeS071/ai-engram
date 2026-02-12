@@ -278,15 +278,23 @@ class SocialSchedulerService:
         )
         self.health.append(status.model_dump())
         if status.overall_status == "pass":
-            self.set_control("health_gate_last_pass_date", self._local_date())
+            self.set_control("health_gate_last_pass_date", self._health_gate_cycle_date())
         return status
 
-    def _local_date(self) -> str:
-        return datetime.now().astimezone().date().isoformat()
+    def _health_gate_cycle_date(self, now_local: datetime | None = None) -> str:
+        """
+        Health gate cycle resets at 06:00 local time.
+        Before 06:00, treat the cycle as previous local date.
+        """
+        local = (now_local or datetime.now().astimezone()).astimezone()
+        cycle_date = local.date()
+        if local.hour < 6:
+            cycle_date = cycle_date - timedelta(days=1)
+        return cycle_date.isoformat()
 
-    def has_passed_health_gate_today(self) -> bool:
+    def has_passed_health_gate_today(self, now_local: datetime | None = None) -> bool:
         value = self.get_control("health_gate_last_pass_date")
-        return value == self._local_date()
+        return value == self._health_gate_cycle_date(now_local)
 
     def due_posts(self, now_utc: datetime | None = None) -> list[SocialPost]:
         if now_utc is None:
